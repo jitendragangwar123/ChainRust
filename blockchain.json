@@ -1,0 +1,30 @@
+{
+  "chain": [
+    {
+      "timestamp": 1747509744,
+      "transactions": [],
+      "previous_hash": "0",
+      "nonce": 61,
+      "hash": "00dcb237ee3c5467ae85c87fa9edee278826b8ff7efc4019c2bcb41d5ddb6936"
+    },
+    {
+      "timestamp": 1747509786,
+      "transactions": [
+        {
+          "sender": "Alice",
+          "receiver": "Bob",
+          "amount": 50
+        },
+        {
+          "sender": "Bob",
+          "receiver": "Charlie",
+          "amount": 30
+        }
+      ],
+      "previous_hash": "00dcb237ee3c5467ae85c87fa9edee278826b8ff7efc4019c2bcb41d5ddb6936",
+      "nonce": 179,
+      "hash": "00cff431b7cb7fbf20dbb4b2fed25cdaef9cc89b917e557ec62c400ccf1cc0c4"
+    }
+  ],
+  "difficulty": 2
+}
