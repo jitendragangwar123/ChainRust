@@ -1,239 +1,20 @@
-use actix_web::{web, App, HttpResponse, HttpServer, Responder, Error as ActixError};
-use serde::{Deserialize, Serialize};
-use chrono::Utc;
-use sha2::{Sha256, Digest};
+use actix_web::{web, App, HttpServer};
 use std::sync::{Arc, Mutex};
-use std::fs::{self, write};
-use log::{info, debug, error, warn};
-use utoipa::{OpenApi, ToSchema};
+use std::io;
+use log::{info, error};
 use utoipa_swagger_ui::SwaggerUi;
+use crate::api::{AppState, ApiDoc, get_chain, add_block};
+use crate::blockchain::Blockchain;
+use utoipa::OpenApi;
 
-// Transaction struct
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-struct Transaction {
-    sender: String,
-    receiver: String,
-    amount: u64,
-}
-
-// Block struct
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-struct Block {
-    timestamp: i64,
-    transactions: Vec<Transaction>,
-    previous_hash: String,
-    nonce: u64,
-    hash: String,
-}
-
-impl Block {
-    fn new(transactions: Vec<Transaction>, previous_hash: String) -> Self {
-        let timestamp = Utc::now().timestamp();
-        info!("Creating new block with timestamp: {}", timestamp);
-        let mut block = Block {
-            timestamp,
-            transactions,
-            previous_hash,
-            nonce: 0,
-            hash: String::new(),
-        };
-        block.hash = block.calculate_hash();
-        debug!("Block hash calculated: {}", block.hash);
-        block
-    }
-
-    fn calculate_hash(&self) -> String {
-        debug!("Serializing block for hashing");
-        let serialized = serde_json::to_string(&(
-            self.timestamp,
-            &self.transactions,
-            &self.previous_hash,
-            self.nonce,
-        )).expect("Failed to serialize block");
-        let mut hasher = Sha256::new();
-        hasher.update(&serialized);
-        let hash = format!("{:x}", hasher.finalize());
-        debug!("Hash computed: {}", hash);
-        hash
-    }
-
-    fn mine_block(&mut self, difficulty: usize) {
-        if difficulty > 64 {
-            error!("Difficulty {} exceeds max hash length (64)", difficulty);
-            panic!("Difficulty {} exceeds max hash length", difficulty);
-        }
-        info!("Mining block with difficulty: {}", difficulty);
-        let target = "0".repeat(difficulty);
-        while &self.hash[..difficulty] != target {
-            self.nonce += 1;
-            self.hash = self.calculate_hash();
-            debug!("Mining attempt, nonce: {}, hash: {}", self.nonce, self.hash);
-        }
-        info!("Block mined successfully with nonce: {}", self.nonce);
-    }
-}
-
-// Blockchain struct
-#[derive(Serialize, Deserialize, Debug, Clone, ToSchema)]
-struct Blockchain {
-    /// List of blocks in the blockchain
-    chain: Vec<Block>,
-    /// Mining difficulty (number of leading zeros required in hash)
-    difficulty: usize,
-}
-
-impl Blockchain {
-    fn new() -> Self {
-        info!("Creating new blockchain with genesis block");
-        let mut genesis_block = Block::new(vec![], "0".to_string());
-        genesis_block.mine_block(2);
-        Blockchain {
-            chain: vec![genesis_block],
-            difficulty: 2,
-        }
-    }
-
-    fn add_block(&mut self, transactions: Vec<Transaction>) {
-        if transactions.is_empty() {
-            warn!("Skipping empty transaction list");
-            return;
-        }
-        info!("Adding block with {} transactions", transactions.len());
-        let previous_hash = self.chain.last().expect("Chain should have genesis block").hash.clone();
-        let mut new_block = Block::new(transactions, previous_hash);
-        new_block.mine_block(self.difficulty);
-        self.chain.push(new_block);
-        info!("Block added to chain, new chain length: {}", self.chain.len());
-    }
-
-    fn is_chain_valid(&self) -> bool {
-        info!("Validating blockchain with {} blocks", self.chain.len());
-        for (i, block) in self.chain.iter().enumerate() {
-            if i == 0 {
-                continue;
-            }
-            let previous_block = &self.chain[i - 1];
-            if block.hash != block.calculate_hash() {
-                error!("Invalid hash for block {}", i);
-                return false;
-            }
-            if block.previous_hash != previous_block.hash {
-                error!("Invalid previous hash for block {}", i);
-                return false;
-            }
-        }
-        info!("Blockchain is valid");
-        true
-    }
-
-    fn save_to_file(&self, filename: &str) -> std::io::Result<()> {
-        info!("Saving blockchain to file: {}", filename);
-        let data = serde_json::to_string_pretty(self)?;
-        write(filename, &data)?;
-        info!("Blockchain saved successfully");
-        Ok(())
-    }
-
-    fn load_from_file(filename: &str) -> std::io::Result<Self> {
-        info!("Loading blockchain from file: {}", filename);
-        let data = fs::read_to_string(filename)?;
-        let blockchain: Self = serde_json::from_str(&data)?;
-        info!("Blockchain loaded successfully, {} blocks", blockchain.chain.len());
-        Ok(blockchain)
-    }
-}
-
-// AppState for shared state
-#[derive(Clone)]
-struct AppState {
-    blockchain: Arc<Mutex<Blockchain>>,
-}
-
-// Error response for bad requests
-#[derive(Serialize, ToSchema)]
-struct ErrorResponse {
-    error: String,
-}
-
-// Success response for adding a block
-#[derive(Serialize, ToSchema)]
-struct SuccessResponse {
-    message: String,
-}
-
-// OpenAPI documentation
-#[derive(OpenApi)]
-#[openapi(
-    paths(
-        get_chain,
-        add_block
-    ),
-    components(
-        schemas(Transaction, Block, Blockchain, ErrorResponse, SuccessResponse)
-    ),
-    info(
-        title = "Rust Blockchain API",
-        description = "A simple rust blockchain API with endpoints to retrieve the chain and add new blocks.",
-        version = "1.0.0"
-    )
-)]
-struct ApiDoc;
-
-// API endpoints
-#[utoipa::path(
-    get,
-    path = "/chain",
-    responses(
-        (status = 200, description = "Retrieve the entire blockchain", body = Blockchain, content_type = "application/json"),
-        (status = 500, description = "Internal server error", body = ErrorResponse, content_type = "application/json")
-    ),
-    context_path = ""
-)]
-
-async fn get_chain(data: web::Data<AppState>) -> Result<impl Responder, ActixError> {
-    info!("GET /chain requested");
-    let blockchain = data.blockchain.lock().map_err(|e| {
-        error!("Mutex poisoned: {}", e);
-        actix_web::error::ErrorInternalServerError(format!("Mutex poisoned: {}", e))
-    })?;
-    debug!("Returning blockchain with {} blocks", blockchain.chain.len());
-    Ok(HttpResponse::Ok().json(&*blockchain))
-}
-
-#[utoipa::path(
-    post,
-    path = "/add_block",
-    request_body(content = Vec<Transaction>, description = "List of transactions to add to a new block", content_type = "application/json"),
-    responses(
-        (status = 200, description = "Block added successfully", body = SuccessResponse, content_type = "application/json"),
-        (status = 400, description = "No transactions provided", body = ErrorResponse, content_type = "application/json"),
-        (status = 500, description = "Internal server error", body = ErrorResponse, content_type = "application/json")
-    ),
-    context_path = ""
-)]
-
-async fn add_block(data: web::Data<AppState>, transactions: web::Json<Vec<Transaction>>) -> Result<impl Responder, ActixError> {
-    info!("POST /add_block requested with {} transactions", transactions.len());
-    let transactions = transactions.into_inner();
-    if transactions.is_empty() {
-        warn!("Empty transaction list received");
-        return Ok(HttpResponse::BadRequest().json(ErrorResponse {
-            error: "No transactions provided".to_string(),
-        }));
-    }
-    let mut blockchain = data.blockchain.lock().map_err(|e| {
-        error!("Mutex poisoned: {}", e);
-        actix_web::error::ErrorInternalServerError(format!("Mutex poisoned: {}", e))
-    })?;
-    blockchain.add_block(transactions);
-    info!("Block added successfully");
-    Ok(HttpResponse::Ok().json(SuccessResponse {
-        message: "Block added successfully!".to_string(),
-    }))
-}
+mod transaction;
+mod block;
+mod blockchain;
+mod models;
+mod api;
 
 #[actix_web::main]
-async fn main() -> std::io::Result<()> {
+async fn main() -> io::Result<()> {
     env_logger::init();
     let filename = "blockchain.json";
     info!("Starting blockchain application!");
@@ -273,7 +54,7 @@ async fn main() -> std::io::Result<()> {
     info!("Server shutting down, validating and saving blockchain");
     let blockchain = app_state_clone.blockchain.lock().map_err(|e| {
         error!("Mutex poisoned: {}", e);
-        std::io::Error::new(std::io::ErrorKind::Other, format!("Mutex poisoned: {}", e))
+        io::Error::new(io::ErrorKind::Other, format!("Mutex poisoned: {}", e))
     })?;
     if blockchain.is_chain_valid() {
         info!("Blockchain is valid, saving to {}", filename);
