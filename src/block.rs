@@ -1,6 +1,7 @@
 use serde::{Serialize, Deserialize};
 use sha2::{Sha256, Digest};
 use chrono::Utc;
+use log::{debug, trace};
 use crate::transaction::Transaction;
 
 #[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
@@ -24,6 +25,14 @@ impl Block {
             nonce: 0,
         };
         block.hash = block.calculate_hash();
+        debug!(
+            "Created block {}: hash={}, previous_hash={}, transactions_len={}, nonce={}",
+            block.index,
+            block.hash,
+            block.previous_hash,
+            block.transactions.len(),
+            block.nonce
+        );
         block
     }
 
@@ -32,15 +41,30 @@ impl Block {
     }
 
     pub fn calculate_hash(&self) -> String {
-        let input = format!(
-            "{}{}{}{}",
+        // Serialize fields individually to ensure consistency
+        let mut hasher = Sha256::new();
+        
+        // Update hasher with each field as bytes
+        hasher.update(self.index.to_be_bytes());
+        hasher.update(self.timestamp.to_be_bytes());
+        hasher.update(
+            serde_json::to_vec(&self.transactions)
+                .expect("Failed to serialize transactions")
+        );
+        hasher.update(self.previous_hash.as_bytes());
+        hasher.update(self.nonce.to_be_bytes());
+
+        let hash = format!("{:x}", hasher.finalize());
+        trace!(
+            "Hash input for block {}: index={}, timestamp={}, transactions={:?}, previous_hash={}, nonce={}",
+            self.index,
             self.index,
             self.timestamp,
-            serde_json::to_string(&self.transactions).unwrap(),
-            self.previous_hash
+            self.transactions,
+            self.previous_hash,
+            self.nonce
         );
-        let mut hasher = Sha256::new();
-        hasher.update(input);
-        format!("{:x}", hasher.finalize())
+        debug!("Calculated hash for block {}: {}", self.index, hash);
+        hash
     }
 }
