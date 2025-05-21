@@ -3,7 +3,7 @@ use secp256k1::{Secp256k1, Message, ecdsa::Signature, SecretKey, PublicKey};
 use sha2::{Sha256, Digest};
 use hex;
 
-#[derive(Serialize, Deserialize, Clone, utoipa::ToSchema)]
+#[derive(Serialize, Deserialize, Clone, utoipa::ToSchema, PartialEq, Debug)]
 pub struct Transaction {
     pub sender: String,
     pub receiver: String,
@@ -11,6 +11,7 @@ pub struct Transaction {
     pub signature: String,
 }
 
+#[allow(dead_code)]
 impl Transaction {
     pub fn new(sender: &str, receiver: &str, amount: u64, private_key: &str) -> Self {
         let secp = Secp256k1::new();
