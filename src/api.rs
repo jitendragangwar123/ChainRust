@@ -13,16 +13,76 @@ use crate::wallet::Wallet;
 )]
 pub struct ApiDoc;
 
+
 #[utoipa::path(
-    get,
-    path = "/chain",
+    post,
+    path = "/wallet",
     responses(
-        (status = 200, description = "Get the entire blockchain", body = Blockchain)
+        (status = 200, description = "Wallet created successfully", body = Wallet)
     )
 )]
-pub async fn get_chain(state: web::Data<AppState>) -> impl actix_web::Responder {
+pub async fn create_wallet(_: web::Data<AppState>) -> impl actix_web::Responder {
+    let wallet = Wallet::new();
+    HttpResponse::Ok().json(wallet)
+}
+
+#[utoipa::path(
+    post,
+    path = "/faucet",
+    request_body = FaucetRequest,
+    responses(
+        (status = 200, description = "Funds added to address", body = String)
+    )
+)]
+pub async fn faucet(state: web::Data<AppState>, req: web::Json<FaucetRequest>) -> impl actix_web::Responder {
+    let mut blockchain = state.blockchain.lock().unwrap();
+    const FAUCET_AMOUNT: u64 = 100;
+    blockchain.add_funds(&req.address, FAUCET_AMOUNT);
+    HttpResponse::Ok().json(format!("Added {} funds to {}", FAUCET_AMOUNT, req.address))
+}
+
+#[utoipa::path(
+    get,
+    path = "/check_balance",
+    params(
+        ("address" = String, Query, description = "The blockchain address to check balance for")
+    ),
+    responses(
+        (status = 200, description = "Balance retrieved successfully", body = u64)
+    )
+)]
+pub async fn check_balance(
+    state: web::Data<AppState>,
+    query: web::Query<BalanceRequest>,
+) -> impl actix_web::Responder {
     let blockchain = state.blockchain.lock().unwrap();
-    HttpResponse::Ok().json(&*blockchain)
+    let balance = blockchain.get_balance(&query.address);
+    HttpResponse::Ok().json(balance)
+}
+
+
+#[utoipa::path(
+    post,
+    path = "/transaction",
+    request_body = TransactionRequest,
+    responses(
+        (status = 200, description = "Transaction added to mempool", body = String),
+        (status = 400, description = "Invalid transaction or insufficient funds")
+    )
+)]
+pub async fn add_transaction(state: web::Data<AppState>, req: web::Json<TransactionRequest>) -> impl actix_web::Responder {
+    let transaction = Transaction::new(&req.sender, &req.receiver, req.amount, &req.private_key);
+    if !transaction.verify() {
+        return HttpResponse::BadRequest().json("Invalid transaction signature");
+    }
+    let blockchain = state.blockchain.lock().unwrap();
+    let balance = blockchain.balances.get(&req.sender).unwrap_or(&0);
+    if *balance < req.amount {
+        return HttpResponse::BadRequest().json("Insufficient funds");
+    }
+    let mut mempool = state.mempool.lock().unwrap();
+    mempool.push(transaction);
+    HttpResponse::Ok().json("Transaction added to mempool")
 }
 
 #[utoipa::path(
@@ -58,66 +118,13 @@ pub async fn add_block(state: web::Data<AppState>) -> impl actix_web::Responder 
 }
 
 #[utoipa::path(
-    post,
-    path = "/faucet",
-    request_body = FaucetRequest,
+    get,
+    path = "/chain",
     responses(
-        (status = 200, description = "Funds added to address", body = String)
+        (status = 200, description = "Get the entire blockchain", body = Blockchain)
     )
 )]
-pub async fn faucet(state: web::Data<AppState>, req: web::Json<FaucetRequest>) -> impl actix_web::Responder {
-    let mut blockchain = state.blockchain.lock().unwrap();
-    const FAUCET_AMOUNT: u64 = 100;
-    blockchain.add_funds(&req.address, FAUCET_AMOUNT);
-    HttpResponse::Ok().json(format!("Added {} funds to {}", FAUCET_AMOUNT, req.address))
-}
-
-#[utoipa::path(
-    post,
-    path = "/transaction",
-    request_body = TransactionRequest,
-    responses(
-        (status = 200, description = "Transaction added to mempool", body = String),
-        (status = 400, description = "Invalid transaction or insufficient funds")
-    )
-)]
-pub async fn add_transaction(state: web::Data<AppState>, req: web::Json<TransactionRequest>) -> impl actix_web::Responder {
-    let transaction = Transaction::new(&req.sender, &req.receiver, req.amount, &req.private_key);
-    if !transaction.verify() {
-        return HttpResponse::BadRequest().json("Invalid transaction signature");
-    }
+pub async fn get_chain(state: web::Data<AppState>) -> impl actix_web::Responder {
     let blockchain = state.blockchain.lock().unwrap();
-    let balance = blockchain.balances.get(&req.sender).unwrap_or(&0);
-    if *balance < req.amount {
-        return HttpResponse::BadRequest().json("Insufficient funds");
-    }
-    let mut mempool = state.mempool.lock().unwrap();
-    mempool.push(transaction);
-    HttpResponse::Ok().json("Transaction added to mempool")
-}
-
-#[utoipa::path(
-    post,
-    path = "/wallet",
-    responses(
-        (status = 200, description = "Wallet created successfully", body = Wallet)
-    )
-)]
-pub async fn create_wallet(_: web::Data<AppState>) -> impl actix_web::Responder {
-    let wallet = Wallet::new();
-    HttpResponse::Ok().json(wallet)
-}
-
-#[utoipa::path(
-    post,
-    path = "/check_balance",
-    request_body = BalanceRequest,
-    responses(
-        (status = 200, description = "Balance retrieved successfully", body = u64)
-    )
-)]
-pub async fn check_balance(state: web::Data<AppState>, req: web::Json<BalanceRequest>) -> impl actix_web::Responder {
-    let blockchain = state.blockchain.lock().unwrap();
-    let balance = blockchain.get_balance(&req.address);
-    HttpResponse::Ok().json(balance)
+    HttpResponse::Ok().json(&*blockchain)
 }

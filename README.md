@@ -126,6 +126,7 @@ curl -X POST http://127.0.0.1:8080/add_block
 
 **Response**:
 - `200 OK`: Returns a JSON string confirming block addition.
+- `400 Bad Request`: If the signature is invalid or funds are insufficient.
 - `500 Internal Server Error`: If the server encounters an issue (e.g., mutex poisoning).
 
 
@@ -138,6 +139,7 @@ curl http://127.0.0.1:8080/chain
 
 **Response**:
 - `200 OK`: Returns the blockchain as JSON.
+- `400 Bad Request`: If the signature is invalid or funds are insufficient.
 - `500 Internal Server Error`: If the server encounters an issue (e.g., mutex poisoning).
 
 

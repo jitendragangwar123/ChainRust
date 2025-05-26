@@ -48,7 +48,7 @@ async fn main() -> io::Result<()> {
             .route("/faucet", actix_web::web::post().to(faucet))
             .route("/transaction", actix_web::web::post().to(add_transaction))
             .route("/wallet", actix_web::web::post().to(create_wallet))
-            .route("/check_balance", actix_web::web::post().to(check_balance))
+            .route("/check_balance", actix_web::web::get().to(check_balance))
             .service(
                 SwaggerUi::new("/swagger-ui/{_:.*}")
                     .url("/api-docs/openapi.json", ApiDoc::openapi())
