@@ -13,7 +13,7 @@ A simple blockchain implementation in Rust using the Actix Web framework. The ap
 - **REST API**:
   - `POST /wallet`: Create a new wallet with key pair.
   - `POST /faucet`: Add funds to an address for testing.
-  - `POST /check_balance`: Retrieve an address’s balance.
+  - `GET /check_balance`: Retrieve an address’s balance.
   - `POST /transaction`: Add a transaction to the mempool.
   - `POST /add_block`: Add a new block with transactions.
   - `GET /chain`: Retrieve the entire blockchain.
@@ -95,10 +95,10 @@ curl -X POST http://127.0.0.1:8080/faucet -H "Content-Type: application/json" -d
 - `500 Internal Server Error`: If the server encounters an issue (e.g., mutex poisoning).
 
 
-### POST /check_balance
+### GET /check_balance
 **Description**: Retrieve an address’s balance.
 ```bash
-curl -X POST http://127.0.0.1:8080/check_balance -H "Content-Type: application/json" -d '{"address": "<public_key>"}'
+curl -X GET "http://127.0.0.1:8080/check_balance?address=<public_key>"
 ```
 
 **Response**:
